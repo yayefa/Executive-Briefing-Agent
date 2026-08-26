@@ -5,7 +5,14 @@ from google.adk.agents.llm_agent import Agent
 from google.adk.agents.sequential_agent import SequentialAgent
 from google.adk.tools.agent_tool import AgentTool
 from exec_briefing_agent.utils import get_id_token, _is_gcp_environment, _token_cache
-from exec_briefing_agent.tools import fetch_url_content, create_mcp_toolset
+from exec_briefing_agent.tools import (
+    fetch_url_content,
+    create_mcp_toolset,
+    _create_mcp_http_client,
+    DEFAULT_FETCH_TIMEOUT,
+    DEFAULT_MCP_CONNECT_TIMEOUT,
+    DEFAULT_MCP_READ_TIMEOUT,
+)
 from exec_briefing_agent.agent import (
     root_agent,
     reporting_agent,
@@ -76,6 +83,21 @@ class TestTools(unittest.TestCase):
         toolset = create_mcp_toolset("https://example-mcp.run.app/mcp")
         self.assertIsNotNone(toolset)
 
+    def test_create_mcp_toolset_timeout_configuration(self):
+        toolset = create_mcp_toolset("https://example-mcp.run.app/mcp")
+        self.assertIsNotNone(toolset)
+        self.assertEqual(toolset._connection_params.timeout, 30.0)
+        self.assertEqual(toolset._connection_params.sse_read_timeout, 300.0)
+
+    def test_mcp_http_client_timeout(self):
+        client = _create_mcp_http_client()
+        self.assertEqual(client.timeout.connect, 30.0)
+        self.assertEqual(client.timeout.read, 300.0)
+
+    def test_default_fetch_timeout(self):
+        self.assertEqual(DEFAULT_FETCH_TIMEOUT, 30.0)
+        self.assertEqual(DEFAULT_MCP_CONNECT_TIMEOUT, 30.0)
+
 
 class TestUtils(unittest.TestCase):
     def test_get_id_token_empty(self):
@@ -123,6 +145,17 @@ class TestAdkIntegration(unittest.TestCase):
 
     def test_agent_engine_app_export(self):
         self.assertIsNotNone(app)
+
+    def test_tool_module_binding(self):
+        self.assertEqual(fetch_url_content.__module__, "exec_briefing_agent.tools")
+
+    def test_cloudpickle_serialization_roundtrip(self):
+        import cloudpickle
+        pickled = cloudpickle.dumps(root_agent)
+        self.assertGreater(len(pickled), 0)
+        unpickled = cloudpickle.loads(pickled)
+        self.assertEqual(unpickled.name, "root_agent")
+        self.assertEqual(len(unpickled.sub_agents), 1)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "exec-briefing-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Executive Threat Advisory Agent for Google Cloud Vertex AI and Gemini Enterprise"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "google-adk[mcp]>=1.31.0",
-    "mcp>=1.1.2",
+    "google-adk[mcp]>=2.7.0",
+    "google-cloud-aiplatform[agent_engines,adk]>=1.126.1",
+    "google-genai>=2.18.0",
+    "mcp>=1.29.0,<2.0.0",
     "beautifulsoup4>=4.12.0",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
+    "pydantic>=2.10.0",
+    "cloudpickle>=3.0.0",
     "google-auth>=2.30.0",
-    "google-genai>=1.0.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["exec_briefing_agent*"]

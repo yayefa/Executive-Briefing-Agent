@@ -1,7 +1,14 @@
 import os
+import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Ensure cross-namespace module registration for serialization/unpickling
+if "exec_briefing_agent.agent_engine_app" not in sys.modules and __name__ == "agent_engine_app":
+    sys.modules["exec_briefing_agent.agent_engine_app"] = sys.modules["agent_engine_app"]
+if "agent_engine_app" not in sys.modules and __name__ == "exec_briefing_agent.agent_engine_app":
+    sys.modules["agent_engine_app"] = sys.modules["exec_briefing_agent.agent_engine_app"]
 
 # Ensure environment variables are loaded from package or workspace root
 _pkg_dir = Path(__file__).resolve().parent
@@ -48,7 +55,10 @@ except (ImportError, ValueError):
 try:
     from .agent import root_agent
 except (ImportError, ValueError):
-    from agent import root_agent
+    try:
+        from exec_briefing_agent.agent import root_agent
+    except (ImportError, ValueError):
+        from agent import root_agent
 
 if AdkApp is not None:
     app = AdkApp(agent=root_agent)

@@ -9,10 +9,16 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
-.venv
+# Virtual environments & local configuration
+.venv/
 .env
+.env.*
+*.env
+**/.env
+**/.env.*
+agent_engine_config.json
 
 # ADK Local Databases & Sessions
 .adk/
 *.db
+

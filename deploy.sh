@@ -44,9 +44,6 @@ AGENT_ENGINE_ID="${AGENT_ENGINE_ID:-}"
 # 4. Dynamically query project number if not provided
 if [[ -z "${PROJECT_NUMBER:-}" ]]; then
   PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)" 2>/dev/null || echo "")"
-  if [[ -z "${PROJECT_NUMBER}" && "${PROJECT_ID}" == "gemini-entreprise-494918" ]]; then
-    PROJECT_NUMBER="593610429940"
-  fi
 fi
 
 # 5. Dynamically discover MCP URLs if not explicitly provided
@@ -111,6 +108,8 @@ raw_env_vars = {
     'GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY': 'true',
     'OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT': 'true',
     'ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS': 'true',
+    'MCP_CONNECT_TIMEOUT_SECS': os.getenv('MCP_CONNECT_TIMEOUT_SECS', '30.0'),
+    'FETCH_URL_TIMEOUT_SECS': os.getenv('FETCH_URL_TIMEOUT_SECS', '30.0'),
 }
 
 # Strictly filter out any empty strings so Vertex AI Agent Engine never receives empty env values
@@ -129,11 +128,16 @@ with open('exec_briefing_agent/.env', 'w') as f:
         f.write(f'{k}={v}\n')
 "
 
-# Copy configs to root for consistency
+# Copy configs and requirements to both root and package directory for consistency
 cp exec_briefing_agent/.agent_engine_config.json agent_engine_config.json
 cp exec_briefing_agent/.env .env
+if [[ -f "requirements.txt" ]]; then
+  cp requirements.txt exec_briefing_agent/requirements.txt
+elif [[ -f "exec_briefing_agent/requirements.txt" ]]; then
+  cp exec_briefing_agent/requirements.txt requirements.txt
+fi
 
-echo "✅ Generated and synchronized deployment configuration and .env."
+echo "✅ Generated and synchronized deployment configuration, requirements, and .env."
 
 echo "📦 Initiating ADK deployment..."
 

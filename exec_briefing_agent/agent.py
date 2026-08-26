@@ -5,6 +5,14 @@ from dotenv import load_dotenv
 from google.adk.agents.llm_agent import Agent
 from google.adk.agents.sequential_agent import SequentialAgent
 
+import sys
+
+# Ensure cross-namespace module registration for serialization/unpickling
+if "exec_briefing_agent.agent" not in sys.modules and __name__ == "agent":
+    sys.modules["exec_briefing_agent.agent"] = sys.modules["agent"]
+if "agent" not in sys.modules and __name__ == "exec_briefing_agent.agent":
+    sys.modules["agent"] = sys.modules["exec_briefing_agent.agent"]
+
 # Load .env from package directory, workspace root, or current directory
 _pkg_dir = Path(__file__).resolve().parent
 _root_dir = _pkg_dir.parent
@@ -20,11 +28,18 @@ try:
     )
     from .utils import resolve_mcp_url
 except (ImportError, ValueError):
-    from tools import (
-        fetch_url_content,
-        create_mcp_toolset,
-    )
-    from utils import resolve_mcp_url
+    try:
+        from exec_briefing_agent.tools import (
+            fetch_url_content,
+            create_mcp_toolset,
+        )
+        from exec_briefing_agent.utils import resolve_mcp_url
+    except (ImportError, ValueError):
+        from tools import (
+            fetch_url_content,
+            create_mcp_toolset,
+        )
+        from utils import resolve_mcp_url
 from google.adk.tools.agent_tool import AgentTool
 
 logger = logging.getLogger(__name__)

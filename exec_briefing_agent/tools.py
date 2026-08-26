@@ -1,13 +1,40 @@
 import os
+import sys
 import urllib.request
 import logging
 from typing import Optional, Any
 import httpx
-from google.adk.tools.mcp_tool import (
-    McpToolset,
-    SseConnectionParams,
-    StreamableHTTPConnectionParams,
-)
+
+# Ensure cross-namespace module registration for serialization/unpickling
+if "exec_briefing_agent.tools" not in sys.modules and __name__ == "tools":
+    sys.modules["exec_briefing_agent.tools"] = sys.modules["tools"]
+if "tools" not in sys.modules and __name__ == "exec_briefing_agent.tools":
+    sys.modules["tools"] = sys.modules["exec_briefing_agent.tools"]
+
+try:
+    from google.adk.tools.mcp_tool import (
+        McpToolset,
+        SseConnectionParams,
+        StreamableHTTPConnectionParams,
+    )
+    MCPToolset = McpToolset
+except (ImportError, ModuleNotFoundError, Exception):
+    try:
+        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, McpToolset
+        from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
+    except (ImportError, ModuleNotFoundError, Exception):
+        McpToolset = None
+        MCPToolset = None
+        SseConnectionParams = None
+        StreamableHTTPConnectionParams = None
+
+try:
+    from .utils import get_id_token
+except (ImportError, ValueError):
+    try:
+        from exec_briefing_agent.utils import get_id_token
+    except (ImportError, ValueError):
+        from utils import get_id_token
 
 
 logger = logging.getLogger(__name__)
@@ -16,16 +43,10 @@ logger = logging.getLogger(__name__)
 def _fetch_id_token_for_url(url_obj: httpx.URL) -> Optional[str]:
     """Helper to get ID token for a given httpx URL."""
     try:
-        from .utils import get_id_token
         audience = f"{url_obj.scheme}://{url_obj.netloc}"
         return get_id_token(audience)
     except Exception:
-        try:
-            from utils import get_id_token
-            audience = f"{url_obj.scheme}://{url_obj.netloc}"
-            return get_id_token(audience)
-        except Exception:
-            return None
+        return None
 
 
 class BearerIdTokenAuth(httpx.Auth):
@@ -53,8 +74,8 @@ async def _force_https_request_hook(request: httpx.Request) -> None:
 
     # FastMCP mounts message post endpoints with a trailing slash.
     # Normalize path so FastMCP does not return a 307 redirect.
-    if request.url.path == "/mcp/messages":
-        request.url = request.url.copy_with(path="/mcp/messages/")
+    if request.url.path in ("/messages", "/mcp/messages"):
+        request.url = request.url.copy_with(path=f"{request.url.path}/")
 
     # Ensure Authorization header is present on all remote GCP requests
     if request.url.host not in ("localhost", "127.0.0.1") and "authorization" not in request.headers:
@@ -67,21 +88,28 @@ DEFAULT_FETCH_USER_AGENT = os.getenv(
     "FETCH_URL_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 )
-DEFAULT_FETCH_TIMEOUT = float(os.getenv("FETCH_URL_TIMEOUT_SECS", "15.0"))
+DEFAULT_FETCH_TIMEOUT = float(os.getenv("FETCH_URL_TIMEOUT_SECS", "30.0"))
 DEFAULT_MAX_FETCH_CHARS = int(os.getenv("MAX_FETCH_URL_CHARS", "40000"))
-DEFAULT_MCP_CONNECT_TIMEOUT = float(os.getenv("MCP_CONNECT_TIMEOUT_SECS", "30.0"))
+DEFAULT_MCP_CONNECT_TIMEOUT = float(os.getenv("MCP_CONNECT_TIMEOUT_SECS", os.getenv("MCP_SESSION_TIMEOUT_SECS", "30.0")))
 DEFAULT_MCP_READ_TIMEOUT = float(os.getenv("MCP_READ_TIMEOUT_SECS", "300.0"))
 
 
 def _create_mcp_http_client(
     headers: Optional[dict[str, Any]] = None,
-    timeout: Optional[httpx.Timeout] = None,
+    timeout: Optional[Any] = None,
     auth: Optional[httpx.Auth] = None,
 ) -> httpx.AsyncClient:
     """Creates a configured HTTPX client that rewrites http to https and preserves ID tokens."""
+    if timeout is None:
+        client_timeout = httpx.Timeout(DEFAULT_MCP_CONNECT_TIMEOUT, read=DEFAULT_MCP_READ_TIMEOUT)
+    elif isinstance(timeout, (int, float)):
+        client_timeout = httpx.Timeout(float(timeout), read=DEFAULT_MCP_READ_TIMEOUT)
+    else:
+        client_timeout = timeout
+
     return httpx.AsyncClient(
         headers=headers,
-        timeout=timeout or httpx.Timeout(DEFAULT_MCP_CONNECT_TIMEOUT, read=DEFAULT_MCP_READ_TIMEOUT),
+        timeout=client_timeout,
         auth=auth or BearerIdTokenAuth(),
         follow_redirects=True,
         event_hooks={"request": [_force_https_request_hook]},
@@ -144,12 +172,20 @@ def fetch_url_content(url: str) -> str:
 def create_mcp_toolset(
     url: Optional[str],
     transport: Optional[str] = None,
-) -> Optional[McpToolset]:
+) -> Optional[Any]:
     """Creates an McpToolset connection if URL is provided.
 
     Supports both SSE (Server-Sent Events) and Streamable HTTP transports.
     Cloud Run MCP servers (FastMCP / MCP SDK) use SSE transport by default.
     """
+    toolset_cls = McpToolset or MCPToolset
+    if toolset_cls is None:
+        logger.warning(
+            "McpToolset is not available because the 'mcp' dependency is not installed. "
+            "Please ensure 'mcp' is listed in requirements.txt."
+        )
+        return None
+
     if not url or not url.strip():
         logger.warning("MCP URL is empty or None.")
         return None
@@ -161,14 +197,9 @@ def create_mcp_toolset(
 
     def _fetch_token():
         try:
-            from .utils import get_id_token
             return get_id_token(audience)
         except Exception:
-            try:
-                from utils import get_id_token
-                return get_id_token(audience)
-            except Exception:
-                return None
+            return None
 
     def dynamic_jwt_header_provider(session_state=None):
         token = _fetch_token()
@@ -183,20 +214,25 @@ def create_mcp_toolset(
     initial_headers = {"Authorization": f"Bearer {initial_token}"} if initial_token else {}
 
     # Determine transport type:
-    # 1. explicit transport parameter
-    # 2. environment variable
-    # 3. URL heuristics (e.g. /streamable)
-    is_streamable = (
-        transport == "streamable"
-        or os.getenv("MCP_TRANSPORT", "").lower() == "streamable"
-        or clean_url.endswith("/streamable")
-    )
-
+    # 1. Explicit transport parameter
+    # 2. Environment variable MCP_TRANSPORT ('streamable' or 'sse')
+    # 3. URL heuristics (/sse uses SSE; /mcp, /streamable, and Cloud Run default to Streamable HTTP)
+    if transport:
+        is_streamable = transport.lower() in ("streamable", "streamable_http", "http")
+    elif os.getenv("MCP_TRANSPORT"):
+        is_streamable = os.getenv("MCP_TRANSPORT", "").lower() in ("streamable", "streamable_http", "http")
+    elif clean_url.endswith("/sse"):
+        is_streamable = False
+    else:
+        # Default to Streamable HTTP for /mcp and standard Google Cloud Run MCP servers
+        is_streamable = True
 
     if is_streamable:
         params = StreamableHTTPConnectionParams(
             url=clean_url,
             headers=initial_headers,
+            timeout=DEFAULT_MCP_CONNECT_TIMEOUT,
+            sse_read_timeout=DEFAULT_MCP_READ_TIMEOUT,
             httpx_client_factory=_create_mcp_http_client,
         )
         transport_type = "Streamable HTTP"
@@ -204,16 +240,18 @@ def create_mcp_toolset(
         params = SseConnectionParams(
             url=clean_url,
             headers=initial_headers,
+            timeout=DEFAULT_MCP_CONNECT_TIMEOUT,
+            sse_read_timeout=DEFAULT_MCP_READ_TIMEOUT,
             httpx_client_factory=_create_mcp_http_client,
         )
         transport_type = "SSE"
 
     if clean_url.startswith("http://localhost") or clean_url.startswith("http://127.0.0.1"):
         logger.info(f"Connecting to local {transport_type} MCP server at {clean_url}")
-        return McpToolset(connection_params=params)
+        return toolset_cls(connection_params=params)
     else:
         logger.info(f"Connecting to remote {transport_type} MCP server at {clean_url}")
-        return McpToolset(connection_params=params, header_provider=dynamic_jwt_header_provider)
+        return toolset_cls(connection_params=params, header_provider=dynamic_jwt_header_provider)
 
 
 

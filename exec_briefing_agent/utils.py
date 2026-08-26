@@ -4,6 +4,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -11,6 +12,12 @@ from urllib.parse import urlparse
 import google.auth
 import google.auth.transport.requests
 from google.oauth2 import id_token
+
+# Ensure cross-namespace module registration for serialization/unpickling
+if "exec_briefing_agent.utils" not in sys.modules and __name__ == "utils":
+    sys.modules["exec_briefing_agent.utils"] = sys.modules["utils"]
+if "utils" not in sys.modules and __name__ == "exec_briefing_agent.utils":
+    sys.modules["utils"] = sys.modules["exec_briefing_agent.utils"]
 
 logger = logging.getLogger(__name__)
 
@@ -202,14 +209,17 @@ def resolve_mcp_url(
     url_env_var: str,
     service_name_env_var: str = "",
     default_service_name: str = "",
+    default_path: str = "/mcp",
 ) -> str | None:
     """Dynamically resolves the MCP server URL from variables (PROJECT_NUMBER, SERVICE_NAME, REGION), GCP metadata, or direct URL."""
     # 1. Direct URL from environment variable (if explicitly provided)
     url = os.getenv(url_env_var)
     if url and url.strip():
         clean_url = url.strip()
-        if not clean_url.endswith("/mcp") and not clean_url.endswith("/mcp/"):
-            clean_url = f"{clean_url.rstrip('/')}/mcp"
+        parsed = urlparse(clean_url)
+        # If no path specified or just root '/', append default_path (/mcp)
+        if not parsed.path or parsed.path == "/":
+            clean_url = f"{clean_url.rstrip('/')}{default_path}"
         return clean_url
 
     # 2. Dynamic construction from variables or GCP metadata server: SERVICE_NAME + PROJECT_NUMBER + REGION
@@ -221,7 +231,7 @@ def resolve_mcp_url(
         clean_service = service_name.strip()
         clean_num = project_number.strip()
         clean_region = region.strip()
-        constructed_url = f"https://{clean_service}-{clean_num}.{clean_region}.run.app/mcp"
+        constructed_url = f"https://{clean_service}-{clean_num}.{clean_region}.run.app{default_path}"
         logger.info("Constructed dynamic MCP URL for %s from project metadata: %s", service_name, constructed_url)
         return constructed_url
 
@@ -243,7 +253,7 @@ def resolve_mcp_url(
             base_url = result.stdout.strip()
             if base_url:
                 logger.info("Discovered %s Cloud Run URL via gcloud: %s", service_name, base_url)
-                return f"{base_url.rstrip('/')}/mcp"
+                return f"{base_url.rstrip('/')}{default_path}"
         except Exception as e:
             logger.debug("gcloud service discovery for %s skipped: %s", service_name, e)
 

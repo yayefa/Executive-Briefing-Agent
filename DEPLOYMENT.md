@@ -237,10 +237,18 @@ In Gemini Enterprise Chat or the ADK Web UI, test the agent with any of the foll
   - Locally: Run `gcloud auth application-default login`. The agent's `utils.py` automatically exchanges ADC refresh tokens for valid ID tokens.
   - On Vertex AI: Ensure the Reasoning Engine Service Account has `roles/run.invoker` on the MCP Cloud Run services.
 
-### Q2: `TypeError: 'NoneType' object is not callable` in Starlette / FastMCP
-- **Cause**: FastMCP expects SSE sessions on `GET /mcp` and messages on `POST /mcp/messages/?session_id=...`. Direct raw POSTs to `/mcp` without an active SSE session return `None` in FastMCP.
-- **Solution**: The agent utilizes `SseServerParams` with normalized paths (`/mcp`) and automatic session lifecycle handling.
+### Q2: `404 Not Found` or `TypeError: 'NoneType' object is not callable` when connecting to MCP Server
+- **Cause**: Google GTI and SecOps MCP servers on Cloud Run implement the **Streamable HTTP** transport protocol on `/mcp` (using POST JSON-RPC), rather than Server-Sent Events (SSE) on `/sse`. Attempting SSE connections to `/sse` yields `404 Not Found`.
+- **Solution**: The agent utilizes `StreamableHTTPConnectionParams` targeting the `/mcp` endpoint (`MCP_TRANSPORT=streamable` or automatic detection).
 
-### Q3: How do I change the underlying Gemini model?
+### Q3: `ModuleNotFoundError: No module named 'tools'` during Reasoning Engine initialization
+- **Cause**: Occurred when tools/modules were imported without canonical package namespace or when `extra_packages` / wheel omitted dependent submodules (`tools.py`, `utils.py`) during remote unpickling.
+- **Solution**:
+  1. Use canonical package imports (`from .tools import ...` or `from exec_briefing_agent.tools import ...`).
+  2. Run `python3 deploy.py --check-only` locally before deploying to verify package structure, module binding, and isolated cloudpickle deserialization.
+  3. Ensure `extra_packages=["exec_briefing_agent"]` is specified when deploying via Vertex AI Reasoning Engine Python SDK, or deploy using `./deploy.sh` / `deploy.py --deploy-method=adk`.
+
+### Q4: How do I change the underlying Gemini model?
 - Set the `SECOPS_AGENT_MODEL` environment variable (e.g., `export SECOPS_AGENT_MODEL="gemini-2.5-pro"` or `"gemini-2.5-flash"`). Default is `gemini-2.5-flash`.
+
 
