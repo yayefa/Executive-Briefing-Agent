@@ -1,0 +1,8 @@
+{
+    "display_name": "exec_briefing_agent",
+    "env_vars": {
+        "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
+        "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "true"
+    }
+}

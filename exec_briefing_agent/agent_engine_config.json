@@ -1,0 +1,10 @@
+{
+    "display_name": "exec_briefing_agent",
+    "env_vars": {
+        "GTI_MCP_URL": "https://mcp-gti-mcp-server-593610429940.us-central1.run.app/mcp",
+        "SECOPS_MCP_URL": "https://secops-mcp-server-593610429940.us-central1.run.app/mcp",
+        "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "true",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "true",
+        "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": "true"
+    }
+}
