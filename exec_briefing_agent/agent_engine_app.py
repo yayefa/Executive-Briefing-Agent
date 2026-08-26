@@ -10,12 +10,14 @@ if "exec_briefing_agent.agent_engine_app" not in sys.modules and __name__ == "ag
 if "agent_engine_app" not in sys.modules and __name__ == "exec_briefing_agent.agent_engine_app":
     sys.modules["agent_engine_app"] = sys.modules["exec_briefing_agent.agent_engine_app"]
 
-# Ensure environment variables are loaded from package or workspace root
+# Ensure environment variables are loaded from workspace root or package
 _pkg_dir = Path(__file__).resolve().parent
 _root_dir = _pkg_dir.parent
 
-load_dotenv(dotenv_path=_pkg_dir / ".env")
-load_dotenv(dotenv_path=_root_dir / ".env")
+if (_root_dir / ".env").is_file():
+    load_dotenv(dotenv_path=_root_dir / ".env", override=True)
+if (_pkg_dir / ".env").is_file():
+    load_dotenv(dotenv_path=_pkg_dir / ".env", override=False)
 load_dotenv()
 
 logger = logging.getLogger(__name__)

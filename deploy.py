@@ -16,12 +16,20 @@ import tarfile
 import tempfile
 from pathlib import Path
 from typing import Optional, List
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s]: %(message)s")
 logger = logging.getLogger("deploy")
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent
 PACKAGE_DIR = WORKSPACE_ROOT / "exec_briefing_agent"
+
+# Load environment variables prioritizing root .env
+if (WORKSPACE_ROOT / ".env").is_file():
+    load_dotenv(dotenv_path=WORKSPACE_ROOT / ".env", override=True)
+if (PACKAGE_DIR / ".env").is_file():
+    load_dotenv(dotenv_path=PACKAGE_DIR / ".env", override=False)
+load_dotenv()
 
 
 def verify_local_package_structure() -> bool:

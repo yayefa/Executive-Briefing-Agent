@@ -8,15 +8,14 @@ set -euo pipefail
 export GOOGLE_API_USE_CLIENT_CERTIFICATE=false
 export GOOGLE_API_USE_MTLS_ENDPOINT=never
 
-# Read existing .env if present
-if [[ -f "exec_briefing_agent/.env" ]]; then
-  # export variables from .env if unset
-  set -a
-  source exec_briefing_agent/.env
-  set +a
-elif [[ -f ".env" ]]; then
+# Read existing .env if present (prioritize root .env over subfolder)
+if [[ -f ".env" ]]; then
   set -a
   source .env
+  set +a
+elif [[ -f "exec_briefing_agent/.env" ]]; then
+  set -a
+  source exec_briefing_agent/.env
   set +a
 fi
 
@@ -87,12 +86,22 @@ else
 fi
 echo "============================================================"
 
-# Dynamically construct .agent_engine_config.json and .env using python to ensure strict JSON validity and NO empty values
+# Dynamically construct .agent_engine_config.json and sync .env
 export PROJECT_ID REGION DISPLAY_NAME SECOPS_AGENT_MODEL GTI_SERVICE_NAME SECOPS_SERVICE_NAME GTI_MCP_URL SECOPS_MCP_URL PROJECT_NUMBER SA_NAME
 python3 -c "
 import json, os
+from pathlib import Path
+from dotenv import dotenv_values
 
-raw_env_vars = {
+# 1. Read existing values from root .env or exec_briefing_agent/.env
+env_from_file = {}
+if Path('.env').is_file():
+    env_from_file = dotenv_values('.env')
+elif Path('exec_briefing_agent/.env').is_file():
+    env_from_file = dotenv_values('exec_briefing_agent/.env')
+
+# 2. Base default values
+defaults = {
     'GOOGLE_GENAI_USE_VERTEXAI': 'true',
     'GOOGLE_CLOUD_PROJECT': os.getenv('PROJECT_ID', ''),
     'GOOGLE_CLOUD_LOCATION': os.getenv('REGION', 'us-central1'),
@@ -112,25 +121,41 @@ raw_env_vars = {
     'FETCH_URL_TIMEOUT_SECS': os.getenv('FETCH_URL_TIMEOUT_SECS', '30.0'),
 }
 
-# Strictly filter out any empty strings so Vertex AI Agent Engine never receives empty env values
-clean_env_vars = {k: v for k, v in raw_env_vars.items() if v and str(v).strip() != ''}
+# 3. Merge: file values take precedence, overridden by explicitly exported shell vars
+merged_vars = {**defaults}
+for k, v in env_from_file.items():
+    if v is not None:
+        merged_vars[k] = v
+
+# Overlay environment overrides from shell
+for k in defaults.keys():
+    shell_val = os.getenv(k)
+    if shell_val:
+        merged_vars[k] = shell_val
+
+# Strictly filter out any empty strings
+clean_env_vars = {k: str(v) for k, v in merged_vars.items() if v and str(v).strip() != ''}
 
 config = {
-    'display_name': os.getenv('DISPLAY_NAME', 'exec_briefing_agent'),
+    'display_name': os.getenv('DISPLAY_NAME', clean_env_vars.get('DISPLAY_NAME', 'exec_briefing_agent')),
     'env_vars': clean_env_vars
 }
 
+Path('exec_briefing_agent').mkdir(exist_ok=True)
 with open('exec_briefing_agent/.agent_engine_config.json', 'w') as f:
     json.dump(config, f, indent=4)
 
 with open('exec_briefing_agent/.env', 'w') as f:
     for k, v in clean_env_vars.items():
         f.write(f'{k}={v}\n')
+
+with open('.env', 'w') as f:
+    for k, v in clean_env_vars.items():
+        f.write(f'{k}={v}\n')
 "
 
-# Copy configs and requirements to both root and package directory for consistency
+# Copy configs and requirements for consistency
 cp exec_briefing_agent/.agent_engine_config.json agent_engine_config.json
-cp exec_briefing_agent/.env .env
 if [[ -f "requirements.txt" ]]; then
   cp requirements.txt exec_briefing_agent/requirements.txt
 elif [[ -f "exec_briefing_agent/requirements.txt" ]]; then

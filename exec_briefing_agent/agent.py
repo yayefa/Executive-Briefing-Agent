@@ -13,12 +13,14 @@ if "exec_briefing_agent.agent" not in sys.modules and __name__ == "agent":
 if "agent" not in sys.modules and __name__ == "exec_briefing_agent.agent":
     sys.modules["agent"] = sys.modules["exec_briefing_agent.agent"]
 
-# Load .env from package directory, workspace root, or current directory
+# Load .env prioritizing workspace root, then package directory
 _pkg_dir = Path(__file__).resolve().parent
 _root_dir = _pkg_dir.parent
 
-load_dotenv(dotenv_path=_pkg_dir / ".env")
-load_dotenv(dotenv_path=_root_dir / ".env")
+if (_root_dir / ".env").is_file():
+    load_dotenv(dotenv_path=_root_dir / ".env", override=True)
+if (_pkg_dir / ".env").is_file():
+    load_dotenv(dotenv_path=_pkg_dir / ".env", override=False)
 load_dotenv()
 
 try:
